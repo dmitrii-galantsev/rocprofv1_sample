@@ -49,6 +49,7 @@ static hsa_status_t get_agent_handle_cb(hsa_agent_t agent, void *agent_arr) {
       agent_arr_->capacity *= 2;
       agent_arr_->agents = (hsa_agent_t *)realloc(
           agent_arr_->agents, agent_arr_->capacity * sizeof(hsa_agent_t));
+      assert(agent_arr_->agents);
     }
     agent_arr_->agents[agent_arr_->count] = agent;
     ++agent_arr_->count;
@@ -69,19 +70,12 @@ static int get_agents(hsa_agent_arr_t *agent_arr) {
 
   hsa_errno = hsa_iterate_agents(get_agent_handle_cb, agent_arr);
   if (hsa_errno != HSA_STATUS_SUCCESS) {
-    goto fn_fail;
+    errcode = -1;
+    agent_arr->capacity = 0;
+    agent_arr->count = 0;
+    free(agent_arr->agents);
   }
-
-fn_exit:
   return errcode;
-fn_fail:
-  errcode = -1;
-
-  agent_arr->capacity = 0;
-  agent_arr->count = 0;
-  free(agent_arr->agents);
-
-  goto fn_exit;
 }
 
 
@@ -121,7 +115,6 @@ void print_features(rocprofiler_feature_t *feature, uint32_t feature_count) {
     default:
       std::cout << "default!!!!!! "
                 << "result kind (" << p->data.kind << ")" << std::endl;
-      // TEST_ASSERT(false);
     }
   }
 }
@@ -130,14 +123,19 @@ void read_features(rocprofiler_t *context, rocprofiler_feature_t *features,
                    const unsigned feature_count) {
   hsa_status_t hsa_errno = rocprofiler_read(context, 0);
   assert(hsa_errno == HSA_STATUS_SUCCESS);
-  std::cout << "reading counters from hw" << std::endl;
   hsa_errno = rocprofiler_get_data(context, 0);
   assert(hsa_errno == HSA_STATUS_SUCCESS);
-  std::cout << "evaluating metric expressions" << std::endl;
   hsa_errno = rocprofiler_get_metrics(context);
   assert(hsa_errno == HSA_STATUS_SUCCESS);
-  std::cout << "RESULTS:" << std::endl;
-  print_features(features, feature_count);
+  //print_features(features, feature_count);
+  std::cout << "FEATURES:" << std::endl;
+  for (int i = 0; i < feature_count; i++) {
+    if (features[i].data.kind == ROCPROFILER_DATA_KIND_DOUBLE) {
+      std::cout << "[" << features[i].data.result_double << "]\n";
+    } else {
+      std::cout << "Weird data type: " << features[i].data.kind << "\n";
+    }
+  }
 }
 
 // This won't actually clear the features as the pmc register is the one which contains the counter value
@@ -167,33 +165,11 @@ for (rocprofiler_feature_t *p = feature; p < feature + feature_count; ++p) {
 }
 
 void setup_profiler_env() {
-  // set path to librocprofiler64.so.1
-  // setenv(
-  //     "HSA_TOOLS_LIB",
-  //     "/home/sauverma/standalone_mode/rocprofiler/build/lib/librocprofiler64.so.1",
-  //     0);
   // set path to metrics.xml
   setenv("ROCP_METRICS", "/opt/rocm/lib/rocprofiler/metrics.xml", 0);
 }
 
 #define QUEUE_NUM_PACKETS 64
-
-bool createHsaQueue(hsa_queue_t **queue, hsa_agent_t gpu_agent) {
-  // create a single-producer queue
-  // TODO: check if API args are correct, especially UINT32_MAX
-  hsa_status_t status;
-  status = hsa_queue_create(gpu_agent, QUEUE_NUM_PACKETS, HSA_QUEUE_TYPE_SINGLE,
-                            NULL, NULL, UINT32_MAX, UINT32_MAX, queue);
-  if (status != HSA_STATUS_SUCCESS)
-    fprintf(stdout, "Queue creation failed");
-
-  // TODO: warning: is it really required!! ??
-  status = hsa_amd_queue_set_priority(*queue, HSA_AMD_QUEUE_PRIORITY_HIGH);
-  if (status != HSA_STATUS_SUCCESS)
-    fprintf(stdout, "Device Profiling HSA Queue Priority Set Failed");
-
-  return (status == HSA_STATUS_SUCCESS);
-}
 
 int main() {
   std::signal(SIGINT, signal_handler);
@@ -201,7 +177,7 @@ int main() {
   setup_profiler_env();
 
   const int features_count = 2;
-  const char *events[features_count] = {"GPU_UTIL", "GRBM_COUNT"};
+  const char *events[features_count] = {"GPU_UTIL", "TA_BUSY_avr"};
   rocprofiler_feature_t features[MAX_DEV_COUNT][features_count];
 
   // initialize hsa. hsa_init() will also load the profiler libs under the hood
@@ -220,18 +196,12 @@ int main() {
   printf("devices being profiled: %u\n", (int)MAX_DEV_COUNT);
 
   for (int i = 0; i < MAX_DEV_COUNT; ++i) {
-
     for (int j = 0; j < features_count; ++j) {
       features[i][j].kind =
           (rocprofiler_feature_kind_t)ROCPROFILER_FEATURE_KIND_METRIC;
       features[i][j].name = events[j];
     }
-    // if (!createHsaQueue(&queues[i], agent_arr.agents[i]))
-    //   fprintf(stdout, "can't create queues[%d]\n", i);
   }
-
-  int sample_index = 0;
-  int sample_count = 5;
 
   rocprofiler_t *contexts[MAX_DEV_COUNT] = {0};
   for (int i = 0; i < MAX_DEV_COUNT; ++i) {
@@ -261,17 +231,13 @@ int main() {
   int loopcount = 0;
 
   while (!signalled) {
-
     for (int i = 0; i < MAX_DEV_COUNT; ++i) {
       printf("Iteration %d\n", loopcount++);
       fprintf(stdout, "------ Collecting Device[%d] -------\n", i);
       read_features(contexts[i], features[i], features_count);
       fprintf(stdout, "-------------------------\n\n");
-
     }
-
     sleep(1);
-
   }
 
   for (int i = 0; i < MAX_DEV_COUNT; ++i) {
@@ -283,6 +249,9 @@ int main() {
     hsa_errno = rocprofiler_close(contexts[i]);
     assert(hsa_errno == HSA_STATUS_SUCCESS);
   }
+
+  hsa_errno = hsa_shut_down();
+  assert(hsa_errno == HSA_STATUS_SUCCESS);
 
   return 0;
 }
