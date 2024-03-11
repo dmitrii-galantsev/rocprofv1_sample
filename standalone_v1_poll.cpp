@@ -1,11 +1,14 @@
 #include <assert.h>
 #include <hip/hip_runtime.h>
 #include <hsa.h>
+#include <atomic>
+#include <cstdio>
 #include <iostream>
 #include <rocprofiler.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <csignal>
+
 
 #ifdef NDEBUG
 #define HIP_ASSERT(x) x
@@ -22,7 +25,7 @@
 #define THREADS_PER_BLOCK_Y 16
 #define THREADS_PER_BLOCK_Z 1
 
-#define MAX_DEV_COUNT (2)
+#define MAX_DEV_COUNT (1)
 
 using namespace std;
 
@@ -78,8 +81,7 @@ static int get_agents(hsa_agent_arr_t *agent_arr) {
   return errcode;
 }
 
-
-bool signalled = false;
+std::atomic_bool signalled = false;
 
 void signal_handler(int signal) {
   printf("Signal received\n");
@@ -242,15 +244,18 @@ int main() {
 
   for (int i = 0; i < MAX_DEV_COUNT; ++i) {
     hsa_errno = rocprofiler_stop(contexts[i], 0);
+    printf("errno:%d\n", hsa_errno);
     assert(hsa_errno == HSA_STATUS_SUCCESS);
   }
 
   for (int i = 0; i < MAX_DEV_COUNT; ++i) {
     hsa_errno = rocprofiler_close(contexts[i]);
+    printf("errno:%d\n", hsa_errno);
     assert(hsa_errno == HSA_STATUS_SUCCESS);
   }
 
   hsa_errno = hsa_shut_down();
+  printf("errno:%d\n", hsa_errno);
   assert(hsa_errno == HSA_STATUS_SUCCESS);
 
   return 0;
