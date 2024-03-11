@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <csignal>
+#include <vector>
 
 
 #ifdef NDEBUG
@@ -89,38 +90,6 @@ void signal_handler(int signal) {
   signalled = true;
 }
 
-void print_features(rocprofiler_feature_t *feature, uint32_t feature_count) {
-  for (rocprofiler_feature_t *p = feature; p < feature + feature_count; ++p) {
-    std::cout << (p - feature) << ": " << p->name;
-    switch (p->data.kind) {
-    case ROCPROFILER_DATA_KIND_INT64:
-      std::cout << std::dec << " result64 (" << p->data.result_int64 << ")"
-                << std::endl;
-      break;
-    case ROCPROFILER_DATA_KIND_DOUBLE:
-      std::cout << " result64 (" << p->data.result_double << ")" << std::endl;
-      break;
-    case ROCPROFILER_DATA_KIND_BYTES: {
-      const char *ptr =
-          reinterpret_cast<const char *>(p->data.result_bytes.ptr);
-      uint64_t size = 0;
-      for (unsigned i = 0; i < p->data.result_bytes.instance_count; ++i) {
-        size = *reinterpret_cast<const uint64_t *>(ptr);
-        const char *data = ptr + sizeof(size);
-        std::cout << std::endl;
-        std::cout << std::hex << "  data (" << (void *)data << ")" << std::endl;
-        std::cout << std::dec << "  size (" << size << ")" << std::endl;
-        ptr = data + size;
-      }
-      break;
-    }
-    default:
-      std::cout << "default!!!!!! "
-                << "result kind (" << p->data.kind << ")" << std::endl;
-    }
-  }
-}
-
 void read_features(rocprofiler_t *context, rocprofiler_feature_t *features,
                    const unsigned feature_count) {
   hsa_status_t hsa_errno = rocprofiler_read(context, 0);
@@ -129,39 +98,12 @@ void read_features(rocprofiler_t *context, rocprofiler_feature_t *features,
   assert(hsa_errno == HSA_STATUS_SUCCESS);
   hsa_errno = rocprofiler_get_metrics(context);
   assert(hsa_errno == HSA_STATUS_SUCCESS);
-  //print_features(features, feature_count);
-  std::cout << "FEATURES:" << std::endl;
+  //std::cout << "FEATURES:" << std::endl;
   for (int i = 0; i < feature_count; i++) {
     if (features[i].data.kind == ROCPROFILER_DATA_KIND_DOUBLE) {
       std::cout << "[" << features[i].data.result_double << "]\n";
     } else {
       std::cout << "Weird data type: " << features[i].data.kind << "\n";
-    }
-  }
-}
-
-// This won't actually clear the features as the pmc register is the one which contains the counter value
-// In order to do a proper clear, the pmc register also needs to be cleared.
-// So the right approach would be to open/close a context each time after read.
-
-
-void clear_features(rocprofiler_feature_t *feature, uint32_t feature_count) {
-for (rocprofiler_feature_t *p = feature; p < feature + feature_count; ++p) {
-    switch (p->data.kind) {
-    case ROCPROFILER_DATA_KIND_INT64: {
-      p->data.result_int64 = 0;
-      printf("data.result_int64: %7lu\n", p->data.result_int64);
-      break;
-    }
-    case ROCPROFILER_DATA_KIND_DOUBLE: {
-      p->data.result_double = 0;
-      printf("data.result_double: %3.3f\n", p->data.result_double);
-      break;
-    }
-    default:
-      std::cout << "default!!!!!! "
-                << "result kind (" << p->data.kind << ")" << std::endl;
-      // TEST_ASSERT(false);
     }
   }
 }
@@ -173,29 +115,15 @@ void setup_profiler_env() {
 
 #define QUEUE_NUM_PACKETS 64
 
-int main() {
-  std::signal(SIGINT, signal_handler);
-
-  setup_profiler_env();
-
-  const int features_count = 2;
-  const char *events[features_count] = {"GPU_UTIL", "TA_BUSY_avr"};
+int run_profiler(const char * feature_name) {
+  const int features_count = 1;
+  const char *events[features_count] = {feature_name};
   rocprofiler_feature_t features[MAX_DEV_COUNT][features_count];
 
   // initialize hsa. hsa_init() will also load the profiler libs under the hood
   hsa_status_t hsa_errno = HSA_STATUS_SUCCESS;
-  hsa_errno = hsa_init();
-  assert(hsa_errno == HSA_STATUS_SUCCESS);
 
   hsa_queue_t *queues[MAX_DEV_COUNT];
-
-  // populate list of agents
-  int errcode = get_agents(&agent_arr);
-  if (errcode != 0) {
-    return -1;
-  }
-  printf("number of devices: %u\n", agent_arr.count);
-  printf("devices being profiled: %u\n", (int)MAX_DEV_COUNT);
 
   for (int i = 0; i < MAX_DEV_COUNT; ++i) {
     for (int j = 0; j < features_count; ++j) {
@@ -220,8 +148,10 @@ int main() {
                           &contexts[i], mode, &properties);
     const char *error_string;
     rocprofiler_error_string(&error_string);
-    fprintf(stdout, "%s\n", error_string);
-    fflush(stdout);
+    if (error_string != NULL) {
+      fprintf(stdout, "%s\n", error_string);
+      fflush(stdout);
+    }
     assert(hsa_errno == HSA_STATUS_SUCCESS);
   }
 
@@ -232,30 +162,71 @@ int main() {
 
   int loopcount = 0;
 
-  while (!signalled) {
+  //while (!signalled) {
+    usleep(1000);
     for (int i = 0; i < MAX_DEV_COUNT; ++i) {
-      printf("Iteration %d\n", loopcount++);
-      fprintf(stdout, "------ Collecting Device[%d] -------\n", i);
+      //printf("Iteration %d\n", loopcount++);
+      //fprintf(stdout, "------ Collecting Device[%d] -------\n", i);
       read_features(contexts[i], features[i], features_count);
-      fprintf(stdout, "-------------------------\n\n");
     }
-    sleep(1);
-  }
+  //}
 
   for (int i = 0; i < MAX_DEV_COUNT; ++i) {
     hsa_errno = rocprofiler_stop(contexts[i], 0);
-    printf("errno:%d\n", hsa_errno);
     assert(hsa_errno == HSA_STATUS_SUCCESS);
   }
+
+  usleep(10);
 
   for (int i = 0; i < MAX_DEV_COUNT; ++i) {
     hsa_errno = rocprofiler_close(contexts[i]);
-    printf("errno:%d\n", hsa_errno);
     assert(hsa_errno == HSA_STATUS_SUCCESS);
   }
 
+  return 0;
+}
+
+int main() {
+  std::signal(SIGINT, signal_handler);
+
+  // setup
+  setup_profiler_env();
+  auto hsa_errno = hsa_init();
+  assert(hsa_errno == HSA_STATUS_SUCCESS);
+  int status;
+
+  // populate list of agents
+  int errcode = get_agents(&agent_arr);
+  if (errcode != 0) {
+    return -1;
+  }
+  printf("number of devices: %u\n", agent_arr.count);
+  printf("devices being profiled: %u\n", (int)MAX_DEV_COUNT);
+
+  // run profiler
+  std::vector<const char *> metrics = {
+    "GPU_UTIL",
+    "TA_BUSY_avr",
+    "CP_UTIL",
+    "SPI_UTIL",
+    //"TA_UTIL",
+    //"GDS_UTIL",
+    //"EA_UTIL",
+  };
+
+  for (int i = 0; i < 100; i++) {
+    printf("\n");
+    for (const auto &metric : metrics) {
+      printf("%-20s", metric);
+      status = run_profiler(metric);
+      assert(status == 0);
+      usleep(1000 * 1);
+    }
+    usleep(1000 * 50);
+  }
+
+  // break down
   hsa_errno = hsa_shut_down();
-  printf("errno:%d\n", hsa_errno);
   assert(hsa_errno == HSA_STATUS_SUCCESS);
 
   return 0;
