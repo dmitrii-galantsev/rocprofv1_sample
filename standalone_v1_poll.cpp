@@ -36,9 +36,7 @@ typedef struct {
   unsigned capacity;
 } hsa_agent_arr_t;
 
-static hsa_agent_arr_t agent_arr;
-
-static hsa_status_t get_agent_handle_cb(hsa_agent_t agent, void *agent_arr) {
+hsa_status_t get_agent_handle_cb(hsa_agent_t agent, void *agent_arr) {
   hsa_device_type_t type;
   hsa_agent_arr_t *agent_arr_ = (hsa_agent_arr_t *)agent_arr;
 
@@ -62,7 +60,7 @@ static hsa_status_t get_agent_handle_cb(hsa_agent_t agent, void *agent_arr) {
   return HSA_STATUS_SUCCESS;
 }
 
-static int get_agents(hsa_agent_arr_t *agent_arr) {
+int get_agents(hsa_agent_arr_t *agent_arr) {
   int errcode = 0;
   hsa_status_t hsa_errno = HSA_STATUS_SUCCESS;
 
@@ -110,12 +108,19 @@ void read_features(rocprofiler_t *context, rocprofiler_feature_t *features,
 
 void setup_profiler_env() {
   // set path to metrics.xml
-  setenv("ROCP_METRICS", "/opt/rocm/lib/rocprofiler/metrics.xml", 0);
+  //setenv("ROCP_METRICS", "/opt/rocm/lib/rocprofiler/metrics.xml", 0);
+  setenv("ROCP_METRICS", "/opt/rocm/libexec/rocprofiler/counters/derived_counters.xml", 0);
 }
 
 #define QUEUE_NUM_PACKETS 64
 
 int run_profiler(const char * feature_name) {
+  // populate list of agents
+  hsa_agent_arr_t agent_arr;
+  int errcode = get_agents(&agent_arr);
+  if (errcode != 0) {
+    return -1;
+  }
   const int features_count = 1;
   const char *events[features_count] = {feature_name};
   rocprofiler_feature_t features[MAX_DEV_COUNT][features_count];
@@ -137,7 +142,7 @@ int run_profiler(const char * feature_name) {
   for (int i = 0; i < MAX_DEV_COUNT; ++i) {
     rocprofiler_properties_t properties = {
         queues[i],
-        128,
+        64,
         NULL,
         NULL,
     };
@@ -183,6 +188,8 @@ int run_profiler(const char * feature_name) {
     assert(hsa_errno == HSA_STATUS_SUCCESS);
   }
 
+  free(agent_arr.agents);
+
   return 0;
 }
 
@@ -195,34 +202,28 @@ int main() {
   assert(hsa_errno == HSA_STATUS_SUCCESS);
   int status;
 
-  // populate list of agents
-  int errcode = get_agents(&agent_arr);
-  if (errcode != 0) {
-    return -1;
-  }
-  printf("number of devices: %u\n", agent_arr.count);
-  printf("devices being profiled: %u\n", (int)MAX_DEV_COUNT);
+  //printf("number of devices: %u\n", agent_arr.count);
+  //printf("devices being profiled: %u\n", (int)MAX_DEV_COUNT);
 
   // run profiler
   std::vector<const char *> metrics = {
-    "GPU_UTIL",
     "TA_BUSY_avr",
-    "CP_UTIL",
-    "SPI_UTIL",
+    //"CU_OCCUPANCY",
+    //"CU_UTILIZATION",
     //"TA_UTIL",
     //"GDS_UTIL",
     //"EA_UTIL",
   };
 
-  for (int i = 0; i < 100; i++) {
-    printf("\n");
+  for (int i = 0; i < 300; i++) {
+    printf("------ [%03d] ------\n", i);
     for (const auto &metric : metrics) {
       printf("%-20s", metric);
       status = run_profiler(metric);
       assert(status == 0);
       usleep(1000 * 1);
     }
-    usleep(1000 * 50);
+    usleep(1000 * 5);
   }
 
   // break down
