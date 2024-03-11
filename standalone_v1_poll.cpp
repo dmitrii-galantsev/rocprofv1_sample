@@ -195,15 +195,6 @@ int run_profiler(const char * feature_name) {
 
 int main() {
   std::signal(SIGINT, signal_handler);
-
-  // setup
-  setup_profiler_env();
-  int status;
-
-  //printf("number of devices: %u\n", agent_arr.count);
-  //printf("devices being profiled: %u\n", (int)MAX_DEV_COUNT);
-
-  // run profiler
   std::vector<const char *> metrics = {
     "TA_BUSY_avr",
     //"CU_OCCUPANCY",
@@ -213,33 +204,41 @@ int main() {
     //"EA_UTIL",
   };
 
+  // setup
+  setup_profiler_env();
+  int status;
+  auto hsa_errno = hsa_init();
+  if (hsa_errno != HSA_STATUS_SUCCESS) {
+    printf("hsa_init() failed! %d\n", hsa_errno);
+    if (hsa_errno == HSA_STATUS_ERROR_OUT_OF_RESOURCES) {
+      // NOTE: this issue is possibly due to rocprofiler not cleaning up the queues
+      printf("ERR: HSA_STATUS_ERROR_OUT_OF_RESOURCES\n");
+    }
+    assert(hsa_errno == HSA_STATUS_SUCCESS);
+  }
+
+  // run profiler
   for (int i = 0; i < 300; i++) {
     printf("------ [%03d] ------\n", i);
-
-    auto hsa_errno = hsa_init();
-    if (hsa_errno != HSA_STATUS_SUCCESS) {
-      printf("hsa_init() failed! %d\n", hsa_errno);
-      if (hsa_errno == HSA_STATUS_ERROR_OUT_OF_RESOURCES) {
-        // NOTE: this issue is possibly due to rocprofiler not cleaning up the queues
-        printf("ERR: HSA_STATUS_ERROR_OUT_OF_RESOURCES\n");
-      }
-      assert(hsa_errno == HSA_STATUS_SUCCESS);
-    }
-
     for (const auto &metric : metrics) {
       printf("%-20s", metric);
       status = run_profiler(metric);
       assert(status == 0);
       usleep(1000 * 1);
     }
-
-    hsa_errno = hsa_shut_down();
-    if (hsa_errno != HSA_STATUS_SUCCESS) {
-      printf("hsa_shut_down() failed! %d\n", hsa_errno);
-      assert(hsa_errno == HSA_STATUS_SUCCESS);
-    }
     usleep(1000 * 5);
   }
 
+  // break down
+  hsa_errno = hsa_shut_down();
+  if (hsa_errno != HSA_STATUS_SUCCESS) {
+    printf("hsa_shut_down() failed! %d\n", hsa_errno);
+    assert(hsa_errno == HSA_STATUS_SUCCESS);
+  }
+  hsa_errno = hsa_shut_down();
+  if (hsa_errno != HSA_STATUS_ERROR_NOT_INITIALIZED) {
+    printf("hsa_shut_down() failed! %d\n", hsa_errno);
+    assert(hsa_errno == HSA_STATUS_ERROR_NOT_INITIALIZED);
+  }
   return 0;
 }
