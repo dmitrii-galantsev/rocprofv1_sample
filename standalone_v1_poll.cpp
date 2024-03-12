@@ -208,6 +208,8 @@ int main() {
     "TA_BUSY_avr",
     "CU_OCCUPANCY",
     "CU_UTILIZATION",
+    "TOTAL_16_OPS",
+    "TOTAL_32_OPS",
     //"TA_UTIL",
     //"GDS_UTIL",
     //"EA_UTIL",
@@ -240,7 +242,7 @@ int main() {
   }
 
   // run profiler
-  for (int i = 0; (i < 300) && (!signalled); i++) {
+  for (int i = 0; (i < 1000) && (!signalled); i++) {
     printf("------ [%03d] ------\n", i);
     for (const auto &metric : metrics) {
       printf("%-20s", metric);
