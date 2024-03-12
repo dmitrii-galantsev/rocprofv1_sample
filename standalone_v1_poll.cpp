@@ -165,7 +165,7 @@ int run_profiler(const char * feature_name, hsa_agent_arr_t agent_arr, hsa_queue
     const char *error_string;
     rocprofiler_error_string(&error_string);
     if (error_string != NULL) {
-      fprintf(stdout, "%s\n", error_string);
+      fprintf(stdout, "%s", error_string);
       fflush(stdout);
     }
     assert(hsa_errno == HSA_STATUS_SUCCESS);
@@ -206,8 +206,8 @@ int main() {
   std::signal(SIGINT, signal_handler);
   std::vector<const char *> metrics = {
     "TA_BUSY_avr",
-    //"CU_OCCUPANCY",
-    //"CU_UTILIZATION",
+    "CU_OCCUPANCY",
+    "CU_UTILIZATION",
     //"TA_UTIL",
     //"GDS_UTIL",
     //"EA_UTIL",
@@ -240,7 +240,7 @@ int main() {
   }
 
   // run profiler
-  for (int i = 0; i < 3000; i++) {
+  for (int i = 0; (i < 300) && (!signalled); i++) {
     printf("------ [%03d] ------\n", i);
     for (const auto &metric : metrics) {
       printf("%-20s", metric);
@@ -251,7 +251,7 @@ int main() {
     usleep(1000 * 5);
   }
 
-    free(agent_arr.agents);
+  free(agent_arr.agents);
 
   // break down
   hsa_errno = hsa_shut_down();
