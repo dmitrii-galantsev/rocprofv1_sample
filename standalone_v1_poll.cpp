@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <cstddef>
 #include <hip/hip_runtime.h>
 #include <hsa.h>
 #include <atomic>
@@ -114,13 +115,24 @@ void setup_profiler_env() {
 
 #define QUEUE_NUM_PACKETS 64
 
-int run_profiler(const char * feature_name) {
-  // populate list of agents
-  hsa_agent_arr_t agent_arr;
-  int errcode = get_agents(&agent_arr);
-  if (errcode != 0) {
-    return -1;
-  }
+bool createHsaQueue(hsa_queue_t **queue, hsa_agent_t gpu_agent) {
+  // create a single-producer queue
+  // TODO: check if API args are correct, especially UINT32_MAX
+  hsa_status_t status;
+  status = hsa_queue_create(gpu_agent, QUEUE_NUM_PACKETS, HSA_QUEUE_TYPE_SINGLE,
+                            NULL, NULL, UINT32_MAX, UINT32_MAX, queue);
+  if (status != HSA_STATUS_SUCCESS)
+    fprintf(stdout, "Queue creation failed");
+
+  // TODO: warning: is it really required!! ??
+  status = hsa_amd_queue_set_priority(*queue, HSA_AMD_QUEUE_PRIORITY_HIGH);
+  if (status != HSA_STATUS_SUCCESS)
+    fprintf(stdout, "Device Profiling HSA Queue Priority Set Failed");
+
+  return (status == HSA_STATUS_SUCCESS);
+}
+
+int run_profiler(const char * feature_name, hsa_agent_arr_t agent_arr, hsa_queue_t **queues) {
   const int features_count = 1;
   const char *events[features_count] = {feature_name};
   rocprofiler_feature_t features[MAX_DEV_COUNT][features_count];
@@ -128,7 +140,6 @@ int run_profiler(const char * feature_name) {
   // initialize hsa. hsa_init() will also load the profiler libs under the hood
   hsa_status_t hsa_errno = HSA_STATUS_SUCCESS;
 
-  hsa_queue_t *queues[MAX_DEV_COUNT];
 
   for (int i = 0; i < MAX_DEV_COUNT; ++i) {
     for (int j = 0; j < features_count; ++j) {
@@ -146,8 +157,8 @@ int run_profiler(const char * feature_name) {
         NULL,
         NULL,
     };
-    int mode = (ROCPROFILER_MODE_STANDALONE | ROCPROFILER_MODE_CREATEQUEUE | ROCPROFILER_MODE_SINGLEGROUP);
-    // int mode = (ROCPROFILER_MODE_STANDALONE | ROCPROFILER_MODE_SINGLEGROUP);
+    // int mode = (ROCPROFILER_MODE_STANDALONE | ROCPROFILER_MODE_CREATEQUEUE | ROCPROFILER_MODE_SINGLEGROUP);
+    int mode = (ROCPROFILER_MODE_STANDALONE | ROCPROFILER_MODE_SINGLEGROUP);
     hsa_errno =
         rocprofiler_open(agent_arr.agents[i], features[i], features_count,
                           &contexts[i], mode, &properties);
@@ -181,14 +192,12 @@ int run_profiler(const char * feature_name) {
     assert(hsa_errno == HSA_STATUS_SUCCESS);
   }
 
-  usleep(10);
+  usleep(100);
 
   for (int i = 0; i < MAX_DEV_COUNT; ++i) {
     hsa_errno = rocprofiler_close(contexts[i]);
     assert(hsa_errno == HSA_STATUS_SUCCESS);
   }
-
-  free(agent_arr.agents);
 
   return 0;
 }
@@ -217,17 +226,32 @@ int main() {
     assert(hsa_errno == HSA_STATUS_SUCCESS);
   }
 
+    // populate list of agents
+  hsa_agent_arr_t agent_arr;
+  int errcode = get_agents(&agent_arr);
+  if (errcode != 0) {
+    return -1;
+  }
+
+  hsa_queue_t *queues[MAX_DEV_COUNT];
+  for (int i = 0; i < MAX_DEV_COUNT; ++i) {
+    if (!createHsaQueue(&queues[i], agent_arr.agents[i]))
+    fprintf(stdout, "can't create queues[%d]\n", i);
+  }
+
   // run profiler
-  for (int i = 0; i < 300; i++) {
+  for (int i = 0; i < 3000; i++) {
     printf("------ [%03d] ------\n", i);
     for (const auto &metric : metrics) {
       printf("%-20s", metric);
-      status = run_profiler(metric);
+      status = run_profiler(metric, agent_arr, queues);
       assert(status == 0);
       usleep(1000 * 1);
     }
     usleep(1000 * 5);
   }
+
+    free(agent_arr.agents);
 
   // break down
   hsa_errno = hsa_shut_down();
