@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <chrono>
 #include <cstddef>
 #include <hip/hip_runtime.h>
 #include <hsa.h>
@@ -176,16 +177,12 @@ int run_profiler(const char * feature_name, hsa_agent_arr_t agent_arr, hsa_queue
     assert(hsa_errno == HSA_STATUS_SUCCESS);
   }
 
-  int loopcount = 0;
-
-  //while (!signalled) {
-    usleep(1000);
-    for (int i = 0; i < MAX_DEV_COUNT; ++i) {
-      //printf("Iteration %d\n", loopcount++);
-      //fprintf(stdout, "------ Collecting Device[%d] -------\n", i);
-      read_features(contexts[i], features[i], features_count);
-    }
-  //}
+  usleep(1000);
+  for (int i = 0; i < MAX_DEV_COUNT; ++i) {
+    //printf("Iteration %d\n", loopcount++);
+    //fprintf(stdout, "------ Collecting Device[%d] -------\n", i);
+    read_features(contexts[i], features[i], features_count);
+  }
 
   for (int i = 0; i < MAX_DEV_COUNT; ++i) {
     hsa_errno = rocprofiler_stop(contexts[i], 0);
@@ -228,7 +225,7 @@ int main() {
     assert(hsa_errno == HSA_STATUS_SUCCESS);
   }
 
-    // populate list of agents
+  // populate list of agents
   hsa_agent_arr_t agent_arr;
   int errcode = get_agents(&agent_arr);
   if (errcode != 0) {
@@ -241,17 +238,35 @@ int main() {
     fprintf(stdout, "can't create queues[%d]\n", i);
   }
 
+  // useful for profiling
+  static const uint32_t SHORT_SLEEP = 1000 * 1;
+  static const uint32_t LONG_SLEEP = 1000 * 5;
+  static const uint32_t LOOPCOUNT = 1000;
+  const auto start_time = std::chrono::system_clock::now();
+
   // run profiler
-  for (int i = 0; (i < 1000) && (!signalled); i++) {
-    printf("------ [%03d] ------\n", i);
+  for (int i = 0; (i < LOOPCOUNT) && (!signalled); i++) {
+    //printf("------ [%03d] ------\n", i);
     for (const auto &metric : metrics) {
-      printf("%-20s", metric);
+      //printf("%-20s", metric);
       status = run_profiler(metric, agent_arr, queues);
       assert(status == 0);
-      usleep(1000 * 1);
+      usleep(SHORT_SLEEP);
     }
-    usleep(1000 * 5);
+    usleep(LONG_SLEEP);
   }
+
+  // calculate end time
+  const auto end_time = std::chrono::system_clock::now();
+  const auto elapsed_time = end_time - start_time;
+  const auto duration = std::chrono::duration_cast<std::chrono::microseconds>(elapsed_time);
+  const auto duration_no_sleep = duration.count() -
+    ((metrics.size() * SHORT_SLEEP + LONG_SLEEP) * LOOPCOUNT);
+  const auto per_loop = duration_no_sleep / LOOPCOUNT;
+  const auto per_metric = per_loop / metrics.size();
+  std::cout << "Execution time: \n";
+  std::cout << "    per_loop: " << per_loop << " us\n";
+  std::cout << "    per_metric: " << per_metric << " us\n";
 
   free(agent_arr.agents);
 
