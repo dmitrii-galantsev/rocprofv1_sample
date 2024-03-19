@@ -12,6 +12,19 @@
 #include <csignal>
 #include <vector>
 
+// NOTE: Edit the metrics here
+// look in metrics.xml for the list of available metrics
+static const std::vector<const char *> metrics = {
+    "TA_BUSY_avr", // this one is available on most devices
+    //"CU_OCCUPANCY",
+    //"CU_UTILIZATION",
+    //"TOTAL_16_OPS",
+    //"TOTAL_32_OPS",
+};
+
+static const uint32_t LOOP_COUNT = 1000;
+static const uint32_t METRIC_SLEEP = 1000 * 1;
+static const uint32_t LOOP_SLEEP = 1000 * 50;
 
 #ifdef NDEBUG
 #define HIP_ASSERT(x) x
@@ -103,7 +116,7 @@ void read_features(rocprofiler_t *context, rocprofiler_feature_t *features,
     if (features[i].data.kind == ROCPROFILER_DATA_KIND_DOUBLE) {
       std::cout << "[" << features[i].data.result_double << "]\n";
     } else {
-      std::cout << "Weird data type: " << features[i].data.kind << "\n";
+      std::cout << "Unsupported data type: " << features[i].data.kind << "\n";
     }
   }
 }
@@ -111,7 +124,7 @@ void read_features(rocprofiler_t *context, rocprofiler_feature_t *features,
 void setup_profiler_env() {
   // set path to metrics.xml
   //setenv("ROCP_METRICS", "/opt/rocm/lib/rocprofiler/metrics.xml", 0);
-  setenv("ROCP_METRICS", "/opt/rocm/libexec/rocprofiler/counters/derived_counters.xml", 0);
+  setenv("ROCP_METRICS", "./metrics.xml", 0);
 }
 
 #define QUEUE_NUM_PACKETS 64
@@ -158,7 +171,6 @@ int run_profiler(const char * feature_name, hsa_agent_arr_t agent_arr, hsa_queue
         NULL,
         NULL,
     };
-    // int mode = (ROCPROFILER_MODE_STANDALONE | ROCPROFILER_MODE_CREATEQUEUE | ROCPROFILER_MODE_SINGLEGROUP);
     int mode = (ROCPROFILER_MODE_STANDALONE | ROCPROFILER_MODE_SINGLEGROUP);
     hsa_errno =
         rocprofiler_open(agent_arr.agents[i], features[i], features_count,
@@ -201,16 +213,6 @@ int run_profiler(const char * feature_name, hsa_agent_arr_t agent_arr, hsa_queue
 
 int main() {
   std::signal(SIGINT, signal_handler);
-  std::vector<const char *> metrics = {
-    "TA_BUSY_avr",
-    "CU_OCCUPANCY",
-    "CU_UTILIZATION",
-    "TOTAL_16_OPS",
-    "TOTAL_32_OPS",
-    //"TA_UTIL",
-    //"GDS_UTIL",
-    //"EA_UTIL",
-  };
 
   // setup
   setup_profiler_env();
@@ -238,22 +240,18 @@ int main() {
     fprintf(stdout, "can't create queues[%d]\n", i);
   }
 
-  // useful for profiling
-  static const uint32_t SHORT_SLEEP = 1000 * 1;
-  static const uint32_t LONG_SLEEP = 1000 * 5;
-  static const uint32_t LOOPCOUNT = 1000;
   const auto start_time = std::chrono::system_clock::now();
 
   // run profiler
-  for (int i = 0; (i < LOOPCOUNT) && (!signalled); i++) {
-    //printf("------ [%03d] ------\n", i);
+  for (int i = 0; (i < LOOP_COUNT) && (!signalled); i++) {
+    printf("------ [%04d] ------\n", i);
     for (const auto &metric : metrics) {
-      //printf("%-20s", metric);
+      printf("%-20s", metric);
       status = run_profiler(metric, agent_arr, queues);
       assert(status == 0);
-      usleep(SHORT_SLEEP);
+      usleep(METRIC_SLEEP);
     }
-    usleep(LONG_SLEEP);
+    usleep(LOOP_SLEEP);
   }
 
   // calculate end time
@@ -261,8 +259,8 @@ int main() {
   const auto elapsed_time = end_time - start_time;
   const auto duration = std::chrono::duration_cast<std::chrono::microseconds>(elapsed_time);
   const auto duration_no_sleep = duration.count() -
-    ((metrics.size() * SHORT_SLEEP + LONG_SLEEP) * LOOPCOUNT);
-  const auto per_loop = duration_no_sleep / LOOPCOUNT;
+    ((metrics.size() * METRIC_SLEEP + LOOP_SLEEP) * LOOP_COUNT);
+  const auto per_loop = duration_no_sleep / LOOP_COUNT;
   const auto per_metric = per_loop / metrics.size();
   std::cout << "Execution time: \n";
   std::cout << "    per_loop: " << per_loop << " us\n";
