@@ -23,8 +23,12 @@ static const std::vector<const char*> metrics = {
                     //"TOTAL_32_OPS",
 };
 
+// Read all metrics LOOP_COUNT amount of times
+// NOTE: Change this value to the number of times you want to read the metrics
 static const uint32_t LOOP_COUNT = 1000;
+// Inner loop sleep
 static const uint32_t METRIC_SLEEP = 1000 * 1;
+// Outer loop sleep
 static const uint32_t LOOP_SLEEP = 1000 * 50;
 
 #ifdef NDEBUG
@@ -249,17 +253,19 @@ int main() {
     usleep(LOOP_SLEEP);
   }
 
-  // calculate end time
-  const auto end_time = std::chrono::system_clock::now();
-  const auto elapsed_time = end_time - start_time;
-  const auto duration = std::chrono::duration_cast<std::chrono::microseconds>(elapsed_time);
-  const auto duration_no_sleep =
-      duration.count() - ((metrics.size() * METRIC_SLEEP + LOOP_SLEEP) * LOOP_COUNT);
-  const auto per_loop = duration_no_sleep / LOOP_COUNT;
-  const auto per_metric = per_loop / metrics.size();
-  std::cout << "Execution time: \n";
-  std::cout << "    per_loop: " << per_loop << " us\n";
-  std::cout << "    per_metric: " << per_metric << " us\n";
+  if (!signalled) {
+    // calculate end time
+    const auto end_time = std::chrono::system_clock::now();
+    const auto elapsed_time = end_time - start_time;
+    const auto duration = std::chrono::duration_cast<std::chrono::microseconds>(elapsed_time);
+    const auto duration_no_sleep =
+        duration.count() - ((metrics.size() * METRIC_SLEEP + LOOP_SLEEP) * LOOP_COUNT);
+    const auto per_loop = duration_no_sleep / LOOP_COUNT;
+    const auto per_metric = per_loop / metrics.size();
+    std::cout << "Execution time: \n";
+    std::cout << "    per_loop: " << per_loop << " us\n";
+    std::cout << "    per_metric: " << per_metric << " us\n";
+  }
 
   free(agent_arr.agents);
 
