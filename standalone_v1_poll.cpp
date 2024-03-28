@@ -16,16 +16,13 @@
 // NOTE: Edit the metrics here
 // look in metrics.xml for the list of available metrics
 static const std::vector<const char*> metrics = {
-    "TA_BUSY_avr",  // this one is available on most devices
-                    //"CU_OCCUPANCY",
-                    //"CU_UTILIZATION",
-                    //"TOTAL_16_OPS",
-                    //"TOTAL_32_OPS",
-};
+    "ACTIVE_CYCLES",  // this one is available on most devices
+    "ELAPSED_CYCLES", "ACTIVE_WAVES", "MeanOccupancyPerCU", "TOTAL_16_OPS",
+    "TOTAL_32_OPS",   "TOTAL_64_OPS", "FETCH_SIZE",         "WRITE_SIZE"};
 
 // Read all metrics LOOP_COUNT amount of times
 // NOTE: Change this value to the number of times you want to read the metrics
-static const uint32_t LOOP_COUNT = 1000;
+static const uint32_t LOOP_COUNT = 10;
 // Inner loop sleep
 static const uint32_t METRIC_SLEEP = 1000 * 1;
 // Outer loop sleep
@@ -142,8 +139,7 @@ bool createHsaQueue(hsa_queue_t** queue, hsa_agent_t gpu_agent) {
 
   // TODO: warning: is it really required!! ??
   status = hsa_amd_queue_set_priority(*queue, HSA_AMD_QUEUE_PRIORITY_HIGH);
-  if (status != HSA_STATUS_SUCCESS)
-    fprintf(stdout, "Device Profiling HSA Queue Priority Set Failed");
+  if (status != HSA_STATUS_SUCCESS) fprintf(stdout, "HSA Queue Priority Set Failed");
 
   return (status == HSA_STATUS_SUCCESS);
 }
@@ -188,16 +184,18 @@ int run_profiler(const char* feature_name, hsa_agent_arr_t agent_arr, hsa_queue_
     assert(hsa_errno == HSA_STATUS_SUCCESS);
   }
 
+  // this is the duration for which the counter increments from zero.
   usleep(1000);
-  for (int i = 0; i < MAX_DEV_COUNT; ++i) {
-    // printf("Iteration %d\n", loopcount++);
-    // fprintf(stdout, "------ Collecting Device[%d] -------\n", i);
-    read_features(contexts[i], features[i], features_count);
-  }
 
   for (int i = 0; i < MAX_DEV_COUNT; ++i) {
     hsa_errno = rocprofiler_stop(contexts[i], 0);
     assert(hsa_errno == HSA_STATUS_SUCCESS);
+  }
+
+  for (int i = 0; i < MAX_DEV_COUNT; ++i) {
+    // printf("Iteration %d\n", loopcount++);
+    // fprintf(stdout, "------ Collecting Device[%d] -------\n", i);
+    read_features(contexts[i], features[i], features_count);
   }
 
   usleep(100);
